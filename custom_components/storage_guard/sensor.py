@@ -133,7 +133,6 @@ class StorageGuardSensor(
     """Representation of a StorageGuard sensor."""
 
     entity_description: StorageGuardSensorDescription
-    _attr_has_entity_name = True
 
     def __init__(
         self,
@@ -144,6 +143,8 @@ class StorageGuardSensor(
         super().__init__(coordinator)
         self.entity_description = description
         self._attr_unique_id = f"{DOMAIN}_{description.key}"
+        self._attr_name = f"StorageGuard {description.key.replace('_', ' ').title()}"
+        self.entity_id = f"sensor.storage_guard_{description.key}"
         self._attr_device_info = {
             "identifiers": {(DOMAIN, DOMAIN)},
             "name": "StorageGuard",

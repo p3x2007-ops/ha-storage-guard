@@ -23,14 +23,14 @@ async def async_setup_entry(
 class StorageGuardModeSelect(RestoreEntity, SelectEntity):
     """Select entity for StorageGuard operation mode."""
 
-    _attr_has_entity_name = True
-    _attr_translation_key = "mode"
     _attr_options = MODES
 
     def __init__(self, entry: ConfigEntry) -> None:
         """Initialize the mode select."""
         self._entry = entry
         self._attr_unique_id = f"{DOMAIN}_mode"
+        self._attr_name = "StorageGuard Mode"
+        self.entity_id = "select.storage_guard_mode"
         self._attr_current_option = DEFAULT_MODE
         self._attr_device_info = {
             "identifiers": {(DOMAIN, DOMAIN)},

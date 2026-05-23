@@ -26,14 +26,13 @@ async def async_setup_entry(
 class StorageGuardSwitch(RestoreEntity, SwitchEntity):
     """Switch entity for StorageGuard feature toggles."""
 
-    _attr_has_entity_name = True
-
     def __init__(self, entry: ConfigEntry, key: str, default: bool) -> None:
         """Initialize the switch."""
         self._entry = entry
         self._key = key
         self._attr_unique_id = f"{DOMAIN}_{key}"
-        self._attr_translation_key = key
+        self._attr_name = f"StorageGuard {key.replace('_', ' ').title()}"
+        self.entity_id = f"switch.storage_guard_{key}"
         self._attr_is_on = default
         self._default = default
         self._attr_device_info = {

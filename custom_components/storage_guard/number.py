@@ -75,7 +75,6 @@ class StorageGuardNumber(RestoreEntity, NumberEntity):
     """Number entity for StorageGuard configuration."""
 
     entity_description: StorageGuardNumberDescription
-    _attr_has_entity_name = True
 
     def __init__(
         self, entry: ConfigEntry, description: StorageGuardNumberDescription
@@ -84,6 +83,8 @@ class StorageGuardNumber(RestoreEntity, NumberEntity):
         self.entity_description = description
         self._entry = entry
         self._attr_unique_id = f"{DOMAIN}_{description.key}"
+        self._attr_name = f"StorageGuard {description.key.replace('_', ' ').title()}"
+        self.entity_id = f"number.storage_guard_{description.key}"
         self._attr_native_value = description.default_value
         self._attr_device_info = {
             "identifiers": {(DOMAIN, DOMAIN)},

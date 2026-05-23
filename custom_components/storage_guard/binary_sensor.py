@@ -69,7 +69,6 @@ class StorageGuardBinarySensor(
     """Representation of a StorageGuard binary sensor."""
 
     entity_description: StorageGuardBinarySensorDescription
-    _attr_has_entity_name = True
 
     def __init__(
         self,
@@ -82,6 +81,8 @@ class StorageGuardBinarySensor(
         self.entity_description = description
         self._entry = entry
         self._attr_unique_id = f"{DOMAIN}_{description.key}"
+        self._attr_name = f"StorageGuard {description.key.replace('_', ' ').title()}"
+        self.entity_id = f"binary_sensor.storage_guard_{description.key}"
         self._attr_device_info = {
             "identifiers": {(DOMAIN, DOMAIN)},
             "name": "StorageGuard",
