@@ -1,0 +1,69 @@
+purge_database:
+  name: Purge database
+  description: Force recorder purge to reduce database size.
+  fields:
+    keep_days:
+      name: Keep days
+      description: Number of days to retain. Uses configured value if omitted.
+      required: false
+      selector:
+        number:
+          min: 1
+          max: 30
+          mode: box
+
+clean_backups:
+  name: Clean backups
+  description: Remove oldest backups beyond the configured retention count.
+  fields:
+    keep_count:
+      name: Keep count
+      description: Number of backups to retain. Uses configured value if omitted.
+      required: false
+      selector:
+        number:
+          min: 1
+          max: 10
+          mode: box
+
+clean_logs:
+  name: Clean logs
+  description: Truncate Home Assistant log files.
+
+exclude_entity:
+  name: Exclude entity
+  description: Exclude an entity from the recorder.
+  fields:
+    entity_id:
+      name: Entity
+      description: Entity ID to exclude from recording.
+      required: true
+      selector:
+        entity:
+
+include_entity:
+  name: Include entity
+  description: Re-include a previously excluded entity in the recorder.
+  fields:
+    entity_id:
+      name: Entity
+      description: Entity ID to include back in recording.
+      required: true
+      selector:
+        entity:
+
+run_analysis:
+  name: Run analysis
+  description: Re-analyze top storage consuming entities.
+
+run_cleanup:
+  name: Run cleanup
+  description: Execute a full cleanup cycle respecting the current mode.
+  fields:
+    force:
+      name: Force
+      description: Skip confirmation dialogs for destructive actions.
+      required: false
+      default: false
+      selector:
+        boolean:

@@ -1,0 +1,50 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Configuration de StorageGuard",
+        "description": "StorageGuard va surveiller l'utilisation du disque et gérer le stockage automatiquement."
+      }
+    },
+    "abort": {
+      "already_configured": "StorageGuard est déjà configuré.",
+      "no_glances": "Intégration Glances introuvable. Veuillez configurer Glances d'abord.",
+      "not_haos": "StorageGuard nécessite Home Assistant OS ou une installation Supervised."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "disk_used_percent": { "name": "Utilisation disque" },
+      "disk_used": { "name": "Espace utilisé" },
+      "disk_free": { "name": "Espace libre" },
+      "database_size": { "name": "Taille base de données" },
+      "backup_count": { "name": "Nombre de sauvegardes" },
+      "backup_size": { "name": "Taille des sauvegardes" },
+      "log_size": { "name": "Taille des logs" },
+      "last_action": { "name": "Dernière action" },
+      "space_reclaimable": { "name": "Espace récupérable" }
+    },
+    "binary_sensor": {
+      "threshold_exceeded": { "name": "Seuil dépassé" },
+      "critical": { "name": "Stockage critique" }
+    },
+    "select": {
+      "mode": { "name": "Mode de fonctionnement" }
+    },
+    "number": {
+      "alert_threshold": { "name": "Seuil d'alerte" },
+      "purge_keep_days": { "name": "Jours de rétention purge" },
+      "backup_keep_count": { "name": "Sauvegardes à conserver" }
+    },
+    "switch": {
+      "auto_purge_db": { "name": "Purge auto base de données" },
+      "auto_clean_backups": { "name": "Nettoyage auto sauvegardes" },
+      "auto_clean_logs": { "name": "Nettoyage auto logs" },
+      "auto_exclude_entities": { "name": "Exclusion auto entités" },
+      "notify_threshold": { "name": "Notifier au seuil" },
+      "notify_action": { "name": "Notifier à chaque action" },
+      "notify_weekly": { "name": "Rapport hebdomadaire" },
+      "notify_critical": { "name": "Notifier en critique" }
+    }
+  }
+}

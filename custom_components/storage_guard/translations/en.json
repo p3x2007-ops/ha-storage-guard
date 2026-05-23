@@ -1,0 +1,50 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "StorageGuard Setup",
+        "description": "StorageGuard will monitor your disk usage and help manage storage automatically."
+      }
+    },
+    "abort": {
+      "already_configured": "StorageGuard is already configured.",
+      "no_glances": "Glances integration not found. Please configure Glances first.",
+      "not_haos": "StorageGuard requires Home Assistant OS or Supervised installation."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "disk_used_percent": { "name": "Disk used percent" },
+      "disk_used": { "name": "Disk used" },
+      "disk_free": { "name": "Disk free" },
+      "database_size": { "name": "Database size" },
+      "backup_count": { "name": "Backup count" },
+      "backup_size": { "name": "Backup size" },
+      "log_size": { "name": "Log size" },
+      "last_action": { "name": "Last action" },
+      "space_reclaimable": { "name": "Reclaimable space" }
+    },
+    "binary_sensor": {
+      "threshold_exceeded": { "name": "Threshold exceeded" },
+      "critical": { "name": "Critical storage" }
+    },
+    "select": {
+      "mode": { "name": "Operation mode" }
+    },
+    "number": {
+      "alert_threshold": { "name": "Alert threshold" },
+      "purge_keep_days": { "name": "Purge retention days" },
+      "backup_keep_count": { "name": "Backups to keep" }
+    },
+    "switch": {
+      "auto_purge_db": { "name": "Auto purge database" },
+      "auto_clean_backups": { "name": "Auto clean backups" },
+      "auto_clean_logs": { "name": "Auto clean logs" },
+      "auto_exclude_entities": { "name": "Auto exclude entities" },
+      "notify_threshold": { "name": "Notify on threshold" },
+      "notify_action": { "name": "Notify on action" },
+      "notify_weekly": { "name": "Weekly report" },
+      "notify_critical": { "name": "Notify on critical" }
+    }
+  }
+}
