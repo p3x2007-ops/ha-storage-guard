@@ -495,10 +495,12 @@ class StorageGuardCard extends HTMLElement {
     this.attachShadow({ mode: "open" });
     this._activeTab = "status";
     this._showInfo = {};
+    this._entityMap = {};
   }
 
   set hass(hass) {
     this._hass = hass;
+    this._buildEntityMap();
     this._render();
   }
 
@@ -510,24 +512,63 @@ class StorageGuardCard extends HTMLElement {
     return 6;
   }
 
-  static getConfigElement() {
-    return document.createElement("storage-guard-card-editor");
-  }
-
   static getStubConfig() {
     return {};
   }
 
-  _getState(entity_id) {
-    const state = this._hass?.states[entity_id];
+  _buildEntityMap() {
+    const map = {};
+    const nameToKey = {
+      "Disk Used Percent": "disk_used_percent",
+      "Disk Used": "disk_used",
+      "Disk Free": "disk_free",
+      "Database Size": "database_size",
+      "Backup Count": "backup_count",
+      "Backup Size": "backup_size",
+      "Log Size": "log_size",
+      "Last Action": "last_action",
+      "Space Reclaimable": "space_reclaimable",
+      "Alert Threshold": "alert_threshold",
+      "Purge Keep Days": "purge_keep_days",
+      "Backup Keep Count": "backup_keep_count",
+      "Mode": "mode",
+      "Auto Purge Db": "auto_purge_db",
+      "Auto Clean Backups": "auto_clean_backups",
+      "Auto Clean Logs": "auto_clean_logs",
+      "Auto Exclude Entities": "auto_exclude_entities",
+      "Notify Threshold": "notify_threshold",
+      "Notify Action": "notify_action",
+      "Notify Weekly": "notify_weekly",
+      "Notify Critical": "notify_critical",
+      "Threshold Exceeded": "threshold_exceeded",
+      "Critical": "critical",
+    };
+    for (const [eid, stateObj] of Object.entries(this._hass.states)) {
+      if (!eid.includes("storageguard") && !eid.includes("storage_guard")) continue;
+      const fname = stateObj.attributes?.friendly_name || "";
+      if (!fname.startsWith("StorageGuard")) continue;
+      const suffix = fname.replace("StorageGuard ", "").trim();
+      const key = nameToKey[suffix];
+      if (key) map[key] = eid;
+    }
+    this._entityMap = map;
+  }
+
+  _resolve(key) {
+    return this._entityMap[key] || `sensor.storage_guard_${key}`;
+  }
+
+  _getState(key) {
+    const eid = this._resolve(key);
+    const state = this._hass?.states[eid];
     if (!state || state.state === "unknown" || state.state === "unavailable") {
       return null;
     }
     return state.state;
   }
 
-  _getNumericState(entity_id, fallback = 0) {
-    const val = this._getState(entity_id);
+  _getNumericState(key, fallback = 0) {
+    const val = this._getState(key);
     return val !== null ? parseFloat(val) : fallback;
   }
 
@@ -538,7 +579,7 @@ class StorageGuardCard extends HTMLElement {
   _getStatusBadge(percent) {
     if (percent === null) return { class: "badge-nominal", text: "—" };
     if (percent > 95) return { class: "badge-critical", text: "CRITICAL" };
-    const threshold = this._getNumericState("number.storage_guard_alert_threshold", 80);
+    const threshold = this._getNumericState("alert_threshold", 80);
     if (percent > threshold) return { class: "badge-warning", text: "WARNING" };
     return { class: "badge-nominal", text: "NOMINAL" };
   }
@@ -566,19 +607,19 @@ class StorageGuardCard extends HTMLElement {
   _render() {
     if (!this._hass) return;
 
-    const diskPercent = this._getNumericState("sensor.storage_guard_disk_used_percent");
-    const diskUsed = this._getNumericState("sensor.storage_guard_disk_used");
-    const diskFree = this._getNumericState("sensor.storage_guard_disk_free");
-    const dbSize = this._getNumericState("sensor.storage_guard_database_size");
-    const backupCount = this._getNumericState("sensor.storage_guard_backup_count");
-    const backupSize = this._getNumericState("sensor.storage_guard_backup_size");
-    const logSize = this._getNumericState("sensor.storage_guard_log_size");
-    const reclaimable = this._getNumericState("sensor.storage_guard_space_reclaimable");
-    const lastAction = this._getState("sensor.storage_guard_last_action") || "None";
-    const mode = this._getState("select.storage_guard_mode") || "manual";
-    const threshold = this._getNumericState("number.storage_guard_alert_threshold", 80);
-    const purgeDays = this._getNumericState("number.storage_guard_purge_keep_days", 7);
-    const keepCount = this._getNumericState("number.storage_guard_backup_keep_count", 3);
+    const diskPercent = this._getNumericState("disk_used_percent");
+    const diskUsed = this._getNumericState("disk_used");
+    const diskFree = this._getNumericState("disk_free");
+    const dbSize = this._getNumericState("database_size");
+    const backupCount = this._getNumericState("backup_count");
+    const backupSize = this._getNumericState("backup_size");
+    const logSize = this._getNumericState("log_size");
+    const reclaimable = this._getNumericState("space_reclaimable");
+    const lastAction = this._getState("last_action") || "None";
+    const mode = this._getState("mode") || "manual";
+    const threshold = this._getNumericState("alert_threshold", 80);
+    const purgeDays = this._getNumericState("purge_keep_days", 7);
+    const keepCount = this._getNumericState("backup_keep_count", 3);
     const diskTotal = diskUsed + diskFree;
 
     const status = this._getStatusBadge(diskPercent);
@@ -701,7 +742,7 @@ class StorageGuardCard extends HTMLElement {
     ];
 
     let switchesHtml = switches.map(s => {
-      const isOn = this._getState(`switch.storage_guard_${s.key}`) === "on";
+      const isOn = this._getState(s.key) === "on";
       return `<div class="toggle-row">
         <span class="toggle-label">${s.label}</span>
         <div class="toggle ${isOn ? 'on' : ''}" data-switch="${s.key}"><div class="toggle-knob"></div></div>
@@ -709,7 +750,7 @@ class StorageGuardCard extends HTMLElement {
     }).join("");
 
     let notifHtml = notifSwitches.map(s => {
-      const isOn = this._getState(`switch.storage_guard_${s.key}`) === "on";
+      const isOn = this._getState(s.key) === "on";
       return `<div class="toggle-row">
         <span class="toggle-label">${s.label}</span>
         <div class="toggle ${isOn ? 'on' : ''}" data-switch="${s.key}"><div class="toggle-knob"></div></div>
@@ -868,7 +909,7 @@ class StorageGuardCard extends HTMLElement {
       btn.addEventListener("click", () => {
         const newMode = btn.dataset.mode;
         this._callService("select", "select_option", {
-          entity_id: "select.storage_guard_mode",
+          entity_id: this._resolve("mode"),
           option: newMode
         });
       });
@@ -879,7 +920,7 @@ class StorageGuardCard extends HTMLElement {
     if (thresholdSlider) {
       thresholdSlider.addEventListener("change", (e) => {
         this._callService("number", "set_value", {
-          entity_id: "number.storage_guard_alert_threshold",
+          entity_id: this._resolve("alert_threshold"),
           value: parseInt(e.target.value)
         });
       });
@@ -890,7 +931,7 @@ class StorageGuardCard extends HTMLElement {
     if (purgeSlider) {
       purgeSlider.addEventListener("change", (e) => {
         this._callService("number", "set_value", {
-          entity_id: "number.storage_guard_purge_keep_days",
+          entity_id: this._resolve("purge_keep_days"),
           value: parseInt(e.target.value)
         });
       });
@@ -900,7 +941,7 @@ class StorageGuardCard extends HTMLElement {
     this.shadowRoot.getElementById("backup-minus")?.addEventListener("click", () => {
       if (keepCount > 1) {
         this._callService("number", "set_value", {
-          entity_id: "number.storage_guard_backup_keep_count",
+          entity_id: this._resolve("backup_keep_count"),
           value: keepCount - 1
         });
       }
@@ -908,7 +949,7 @@ class StorageGuardCard extends HTMLElement {
     this.shadowRoot.getElementById("backup-plus")?.addEventListener("click", () => {
       if (keepCount < 10) {
         this._callService("number", "set_value", {
-          entity_id: "number.storage_guard_backup_keep_count",
+          entity_id: this._resolve("backup_keep_count"),
           value: keepCount + 1
         });
       }
@@ -918,7 +959,7 @@ class StorageGuardCard extends HTMLElement {
     this.shadowRoot.querySelectorAll(".toggle").forEach(toggle => {
       toggle.addEventListener("click", () => {
         const key = toggle.dataset.switch;
-        const entity_id = `switch.storage_guard_${key}`;
+        const entity_id = this._resolve(key);
         const isOn = toggle.classList.contains("on");
         this._callService("switch", isOn ? "turn_off" : "turn_on", { entity_id });
       });
