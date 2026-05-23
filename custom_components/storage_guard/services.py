@@ -42,18 +42,36 @@ def _get_coordinator(hass: HomeAssistant) -> StorageGuardCoordinator | None:
     return None
 
 
+def _find_entity(hass: HomeAssistant, domain: str, key: str) -> str | None:
+    """Find a StorageGuard entity by key, regardless of locale-based entity_id."""
+    candidates = [
+        f"{domain}.storage_guard_{key}",
+        f"{domain}.storageguard_{key}",
+    ]
+    for eid in candidates:
+        if hass.states.get(eid):
+            return eid
+    for state in hass.states.async_all(domain):
+        if "storageguard" in state.entity_id or "storage_guard" in state.entity_id:
+            if key.replace("_", "").lower() in state.entity_id.replace("_", "").lower():
+                return state.entity_id
+    return None
+
+
 def _get_switch_state(hass: HomeAssistant, key: str) -> bool:
     """Get a StorageGuard switch state."""
-    entity_id = f"switch.storage_guard_{key}"
-    state = hass.states.get(entity_id)
-    if state is None:
+    entity_id = _find_entity(hass, "switch", key)
+    if not entity_id:
         return False
-    return state.state == "on"
+    state = hass.states.get(entity_id)
+    return state is not None and state.state == "on"
 
 
 def _get_number_value(hass: HomeAssistant, key: str, default: float) -> float:
     """Get a StorageGuard number value."""
-    entity_id = f"number.storage_guard_{key}"
+    entity_id = _find_entity(hass, "number", key)
+    if not entity_id:
+        return default
     state = hass.states.get(entity_id)
     if state is None:
         return default
@@ -65,7 +83,10 @@ def _get_number_value(hass: HomeAssistant, key: str, default: float) -> float:
 
 def _get_mode(hass: HomeAssistant) -> str:
     """Get current operation mode."""
-    state = hass.states.get("select.storage_guard_mode")
+    entity_id = _find_entity(hass, "select", "mode")
+    if not entity_id:
+        return MODE_MANUAL
+    state = hass.states.get(entity_id)
     if state is None:
         return MODE_MANUAL
     return state.state
