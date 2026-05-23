@@ -7,8 +7,12 @@ from typing import Any
 import voluptuous as vol
 
 from homeassistant.config_entries import ConfigFlow
+
+try:
+    from homeassistant.config_entries import ConfigFlowResult
+except ImportError:
+    from homeassistant.data_entry_flow import FlowResult as ConfigFlowResult
 from homeassistant.core import HomeAssistant
-from homeassistant.data_entry_flow import FlowResult
 
 from .const import DOMAIN, DEFAULT_MODE, DEFAULT_ALERT_THRESHOLD
 
@@ -63,7 +67,10 @@ def _is_haos(hass: HomeAssistant) -> bool:
 def _detect_recorder_backend(hass: HomeAssistant) -> str:
     """Detect recorder database backend."""
     try:
-        from homeassistant.components.recorder import get_instance
+        try:
+            from homeassistant.components.recorder import get_instance
+        except ImportError:
+            from homeassistant.helpers.recorder import get_instance
         instance = get_instance(hass)
         db_url = instance.db_url
         if "mysql" in db_url or "mariadb" in db_url:
@@ -82,7 +89,7 @@ class StorageGuardConfigFlow(ConfigFlow, domain=DOMAIN):
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Handle the initial step."""
         await self.async_set_unique_id(DOMAIN)
         self._abort_if_unique_id_configured()

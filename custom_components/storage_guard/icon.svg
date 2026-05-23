@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="none">
+  <rect width="256" height="256" rx="32" fill="#0d1117"/>
+  <g transform="translate(40, 40)">
+    <!-- Shield outline -->
+    <path d="M88 8 L168 32 L168 96 C168 136 136 164 88 176 C40 164 8 136 8 96 L8 32 Z"
+          stroke="#58a6ff" stroke-width="6" fill="none" stroke-linejoin="round"/>
+    <!-- HDD icon inside shield -->
+    <rect x="44" y="60" width="88" height="56" rx="8" stroke="#8b949e" stroke-width="4" fill="#161b22"/>
+    <circle cx="120" cy="88" r="6" fill="#58a6ff"/>
+    <line x1="52" y1="100" x2="104" y2="100" stroke="#30363d" stroke-width="4" stroke-linecap="round"/>
+    <!-- Check mark -->
+    <path d="M60 86 L78 104 L116 66" stroke="#3fb950" stroke-width="6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>

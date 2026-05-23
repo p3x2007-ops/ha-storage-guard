@@ -122,7 +122,10 @@ class StorageGuardCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Get database size from recorder."""
         data = {DATA_DB_SIZE: 0}
         try:
-            from homeassistant.components.recorder import get_instance
+            try:
+                from homeassistant.components.recorder import get_instance
+            except ImportError:
+                from homeassistant.helpers.recorder import get_instance
             instance = get_instance(self.hass)
             stat = await instance.async_add_executor_job(
                 self._get_db_size_sync, instance
@@ -135,21 +138,22 @@ class StorageGuardCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _get_db_size_sync(self, instance: Any) -> float:
         """Get database file size (sync)."""
         try:
-            from homeassistant.components.recorder.util import session_scope
-            with session_scope(session=instance.get_session()) as session:
-                if "mysql" in instance.db_url or "mariadb" in instance.db_url:
-                    result = session.execute(
+            db_url = instance.db_url
+            if "mysql" in db_url or "mariadb" in db_url:
+                from sqlalchemy import text
+                with instance.get_session() as session:
+                    result = session.execute(text(
                         "SELECT ROUND(SUM(data_length + index_length) / 1024 / 1024 / 1024, 2) "
                         "FROM information_schema.tables WHERE table_schema = DATABASE()"
-                    )
+                    ))
                     row = result.fetchone()
                     if row and row[0]:
                         return float(row[0])
-                else:
-                    import os
-                    db_path = instance.db_url.replace("sqlite:///", "")
-                    if os.path.exists(db_path):
-                        return round(os.path.getsize(db_path) / 1024 / 1024 / 1024, 2)
+            else:
+                import os
+                db_path = db_url.replace("sqlite:///", "")
+                if os.path.exists(db_path):
+                    return round(os.path.getsize(db_path) / 1024 / 1024 / 1024, 2)
         except Exception as err:
             _LOGGER.debug("Error querying DB size: %s", err)
         return 0
@@ -188,7 +192,10 @@ class StorageGuardCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Analyze top storage-consuming entities."""
         entities: list[dict[str, Any]] = []
         try:
-            from homeassistant.components.recorder import get_instance
+            try:
+                from homeassistant.components.recorder import get_instance
+            except ImportError:
+                from homeassistant.helpers.recorder import get_instance
             instance = get_instance(self.hass)
             entities = await instance.async_add_executor_job(
                 self._get_top_entities_sync, instance
@@ -201,10 +208,11 @@ class StorageGuardCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Query top entities by state change frequency (sync)."""
         entities: list[dict[str, Any]] = []
         try:
-            from homeassistant.components.recorder.util import session_scope
-            with session_scope(session=instance.get_session()) as session:
-                if "mysql" in instance.db_url or "mariadb" in instance.db_url:
-                    result = session.execute(
+            db_url = instance.db_url
+            if "mysql" in db_url or "mariadb" in db_url:
+                from sqlalchemy import text
+                with instance.get_session() as session:
+                    result = session.execute(text(
                         "SELECT sm.entity_id, COUNT(*) as changes, "
                         "ROUND(COUNT(*) * 0.0001, 2) as est_mb_per_day "
                         "FROM states s "
@@ -213,7 +221,7 @@ class StorageGuardCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         "GROUP BY sm.entity_id "
                         "ORDER BY changes DESC "
                         "LIMIT 10"
-                    )
+                    ))
                     for row in result:
                         entities.append({
                             "entity_id": row[0],
