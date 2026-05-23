@@ -3,7 +3,7 @@
   "name": "StorageGuard",
   "codeowners": [],
   "config_flow": true,
-  "dependencies": ["recorder"],
+  "after_dependencies": ["recorder", "hassio", "glances"],
   "documentation": "https://github.com/ha-storage-guard/ha-storage-guard",
   "integration_type": "service",
   "iot_class": "local_polling",

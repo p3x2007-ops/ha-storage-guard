@@ -6,7 +6,6 @@ import logging
 from datetime import timedelta
 from typing import Any
 
-from homeassistant.components.hassio import HassioAPIError
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
@@ -159,14 +158,13 @@ class StorageGuardCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Get backup information from Supervisor API."""
         data = {DATA_BACKUP_COUNT: 0, DATA_BACKUP_SIZE: 0}
         try:
-            from homeassistant.components.hassio import async_get_addon_info
-            supervisor = self.hass.components.hassio
-            result = await supervisor.async_get_backups(self.hass)
-            if result and "backups" in result:
-                backups = result["backups"]
+            from homeassistant.components.hassio import get_supervisor_client
+            client = get_supervisor_client(self.hass)
+            backups = await client.backups.list()
+            if backups:
                 data[DATA_BACKUP_COUNT] = len(backups)
                 total_size = sum(
-                    b.get("size", 0) for b in backups
+                    getattr(b, "size", 0) or 0 for b in backups
                 )
                 data[DATA_BACKUP_SIZE] = round(total_size, 2)
         except Exception as err:

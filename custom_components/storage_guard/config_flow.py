@@ -6,18 +6,22 @@ from typing import Any
 
 import voluptuous as vol
 
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import ConfigFlow
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import entity_registry as er
+from homeassistant.data_entry_flow import FlowResult
 
 from .const import DOMAIN, DEFAULT_MODE, DEFAULT_ALERT_THRESHOLD
 
 
-async def _async_has_glances(hass: HomeAssistant) -> bool:
+def _has_glances(hass: HomeAssistant) -> bool:
     """Check if Glances integration is providing disk sensors."""
     states = hass.states.async_all("sensor")
     for state in states:
-        if "glances" in state.entity_id and ("disk" in state.entity_id or "disque" in state.entity_id or "espace" in state.entity_id):
+        if "glances" in state.entity_id and (
+            "disk" in state.entity_id
+            or "disque" in state.entity_id
+            or "espace" in state.entity_id
+        ):
             return True
     return False
 
@@ -31,27 +35,32 @@ def _find_glances_disk_entities(hass: HomeAssistant) -> dict[str, str]:
         eid = state.entity_id
         if "glances" not in eid:
             continue
-        # Match disk usage percent (prefer /data or root partition)
-        if ("utilisation_disque" in eid or "disk_use_percent" in eid) and ("data" in eid or "homeassistant" in eid):
+        if ("utilisation_disque" in eid or "disk_use_percent" in eid) and (
+            "data" in eid or "homeassistant" in eid
+        ):
             entities["disk_percent"] = eid
-        # Match disk used (GB)
-        elif ("espace_utilise" in eid or "disk_use" in eid) and "echange" not in eid and ("data" in eid or "homeassistant" in eid):
+        elif (
+            ("espace_utilise" in eid or "disk_use" in eid)
+            and "echange" not in eid
+            and ("data" in eid or "homeassistant" in eid)
+        ):
             if not entities["disk_used"]:
                 entities["disk_used"] = eid
-        # Match disk free (GB)
-        elif ("espace_libre" in eid or "disk_free" in eid) and ("data" in eid or "homeassistant" in eid):
+        elif ("espace_libre" in eid or "disk_free" in eid) and (
+            "data" in eid or "homeassistant" in eid
+        ):
             if not entities["disk_free"]:
                 entities["disk_free"] = eid
 
     return entities
 
 
-async def _async_is_haos(hass: HomeAssistant) -> bool:
+def _is_haos(hass: HomeAssistant) -> bool:
     """Check if running on HA OS or Supervised."""
-    return hass.components.hassio.is_hassio(hass)
+    return "hassio" in hass.config.components
 
 
-async def _async_detect_recorder_backend(hass: HomeAssistant) -> str:
+def _detect_recorder_backend(hass: HomeAssistant) -> str:
     """Detect recorder database backend."""
     try:
         from homeassistant.components.recorder import get_instance
@@ -73,19 +82,19 @@ class StorageGuardConfigFlow(ConfigFlow, domain=DOMAIN):
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
+    ) -> FlowResult:
         """Handle the initial step."""
         await self.async_set_unique_id(DOMAIN)
         self._abort_if_unique_id_configured()
 
-        if not await _async_is_haos(self.hass):
+        if not _is_haos(self.hass):
             return self.async_abort(reason="not_haos")
 
-        if not await _async_has_glances(self.hass):
+        if not _has_glances(self.hass):
             return self.async_abort(reason="no_glances")
 
         if user_input is not None:
-            recorder_backend = await _async_detect_recorder_backend(self.hass)
+            recorder_backend = _detect_recorder_backend(self.hass)
             glances_entities = _find_glances_disk_entities(self.hass)
             return self.async_create_entry(
                 title="StorageGuard",

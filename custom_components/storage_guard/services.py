@@ -110,16 +110,17 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         _LOGGER.info("StorageGuard: Cleaning backups, keeping %d", keep_count)
 
         try:
-            supervisor = hass.components.hassio
-            result = await supervisor.async_get_backups(hass)
-            if result and "backups" in result:
-                backups = sorted(result["backups"], key=lambda b: b.get("date", ""))
-                to_delete = backups[:-keep_count] if len(backups) > keep_count else []
+            from homeassistant.components.hassio import get_supervisor_client
+            client = get_supervisor_client(hass)
+            backups = await client.backups.list()
+            if backups:
+                sorted_backups = sorted(backups, key=lambda b: getattr(b, "date", ""))
+                to_delete = sorted_backups[:-keep_count] if len(sorted_backups) > keep_count else []
 
                 for backup in to_delete:
-                    slug = backup.get("slug")
+                    slug = getattr(backup, "slug", None)
                     if slug:
-                        await supervisor.async_remove_backup(hass, slug)
+                        await client.backups.remove(slug)
                         _LOGGER.info("StorageGuard: Deleted backup %s", slug)
 
                 if coordinator and to_delete:
