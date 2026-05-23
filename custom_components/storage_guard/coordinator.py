@@ -90,16 +90,25 @@ class StorageGuardCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Get disk usage from Glances sensors."""
         data = {}
         try:
-            disk_use = self.hass.states.get("sensor.glances_disk_use")
-            disk_free = self.hass.states.get("sensor.glances_disk_free")
-            disk_pct = self.hass.states.get("sensor.glances_disk_use_percent")
+            entry_data = self.config_entry.data
+            disk_used_id = entry_data.get("glances_disk_used", "")
+            disk_free_id = entry_data.get("glances_disk_free", "")
+            disk_pct_id = entry_data.get("glances_disk_percent", "")
 
-            if disk_use and disk_use.state not in ("unknown", "unavailable"):
-                data[DATA_DISK_USED] = float(disk_use.state)
-            if disk_free and disk_free.state not in ("unknown", "unavailable"):
-                data[DATA_DISK_FREE] = float(disk_free.state)
-            if disk_pct and disk_pct.state not in ("unknown", "unavailable"):
-                data[DATA_DISK_PERCENT] = float(disk_pct.state)
+            if disk_used_id:
+                disk_use = self.hass.states.get(disk_used_id)
+                if disk_use and disk_use.state not in ("unknown", "unavailable"):
+                    data[DATA_DISK_USED] = float(disk_use.state)
+
+            if disk_free_id:
+                disk_free = self.hass.states.get(disk_free_id)
+                if disk_free and disk_free.state not in ("unknown", "unavailable"):
+                    data[DATA_DISK_FREE] = float(disk_free.state)
+
+            if disk_pct_id:
+                disk_pct = self.hass.states.get(disk_pct_id)
+                if disk_pct and disk_pct.state not in ("unknown", "unavailable"):
+                    data[DATA_DISK_PERCENT] = float(disk_pct.state)
 
             used = data.get(DATA_DISK_USED, 0)
             free = data.get(DATA_DISK_FREE, 0)

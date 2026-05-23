@@ -15,15 +15,35 @@ from .const import DOMAIN, DEFAULT_MODE, DEFAULT_ALERT_THRESHOLD
 
 async def _async_has_glances(hass: HomeAssistant) -> bool:
     """Check if Glances integration is providing disk sensors."""
-    registry = er.async_get(hass)
-    for entry in registry.entities.values():
-        if "glances" in entry.entity_id and "disk" in entry.entity_id:
-            return True
     states = hass.states.async_all("sensor")
     for state in states:
-        if "glances" in state.entity_id and "disk" in state.entity_id:
+        if "glances" in state.entity_id and ("disk" in state.entity_id or "disque" in state.entity_id or "espace" in state.entity_id):
             return True
     return False
+
+
+def _find_glances_disk_entities(hass: HomeAssistant) -> dict[str, str]:
+    """Find the correct Glances disk entity IDs dynamically."""
+    entities = {"disk_used": "", "disk_free": "", "disk_percent": ""}
+    states = hass.states.async_all("sensor")
+
+    for state in states:
+        eid = state.entity_id
+        if "glances" not in eid:
+            continue
+        # Match disk usage percent (prefer /data or root partition)
+        if ("utilisation_disque" in eid or "disk_use_percent" in eid) and ("data" in eid or "homeassistant" in eid):
+            entities["disk_percent"] = eid
+        # Match disk used (GB)
+        elif ("espace_utilise" in eid or "disk_use" in eid) and "echange" not in eid and ("data" in eid or "homeassistant" in eid):
+            if not entities["disk_used"]:
+                entities["disk_used"] = eid
+        # Match disk free (GB)
+        elif ("espace_libre" in eid or "disk_free" in eid) and ("data" in eid or "homeassistant" in eid):
+            if not entities["disk_free"]:
+                entities["disk_free"] = eid
+
+    return entities
 
 
 async def _async_is_haos(hass: HomeAssistant) -> bool:
@@ -66,12 +86,16 @@ class StorageGuardConfigFlow(ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             recorder_backend = await _async_detect_recorder_backend(self.hass)
+            glances_entities = _find_glances_disk_entities(self.hass)
             return self.async_create_entry(
                 title="StorageGuard",
                 data={
                     "recorder_backend": recorder_backend,
                     "mode": DEFAULT_MODE,
                     "alert_threshold": DEFAULT_ALERT_THRESHOLD,
+                    "glances_disk_used": glances_entities["disk_used"],
+                    "glances_disk_free": glances_entities["disk_free"],
+                    "glances_disk_percent": glances_entities["disk_percent"],
                 },
             )
 
