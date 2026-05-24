@@ -40,7 +40,7 @@ class StorageGuardSwitch(RestoreEntity, SwitchEntity):
             "name": "StorageGuard",
             "manufacturer": "StorageGuard",
             "model": "Storage Manager",
-            "sw_version": "1.0.0",
+            "sw_version": "1.0.1",
         }
 
     async def async_added_to_hass(self) -> None:

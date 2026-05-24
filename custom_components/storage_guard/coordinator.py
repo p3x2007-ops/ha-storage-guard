@@ -8,9 +8,11 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from homeassistant.util import dt as dt_util
 
 from .const import (
+    DEFAULT_BACKUP_KEEP_COUNT,
     DOMAIN,
     DATA_BACKUP_COUNT,
     DATA_BACKUP_SIZE,
@@ -46,8 +48,9 @@ class StorageGuardCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._backup_data: dict[str, Any] = {}
         self._db_data: dict[str, Any] = {}
         self._top_entities: list[dict[str, Any]] = []
-        self._last_action: str = "None"
+        self._last_action: str | None = None
         self._update_count: int = 0
+        self._last_auto_run_ts: float | None = None
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data from all sources."""
@@ -79,9 +82,13 @@ class StorageGuardCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         data[DATA_LAST_ACTION] = self._last_action
         data[DATA_SPACE_RECLAIMABLE] = self._calculate_reclaimable(data)
 
-        # Evaluate thresholds for automation
-        from .automation import async_evaluate_thresholds
-        await async_evaluate_thresholds(self.hass, data)
+        # Evaluate thresholds for automation. Wrap in try/except so a fault in
+        # the automation logic does not prevent sensors from updating.
+        try:
+            from .automation import async_evaluate_thresholds
+            await async_evaluate_thresholds(self.hass, data)
+        except Exception as err:  # noqa: BLE001 - we want to log and continue
+            _LOGGER.exception("StorageGuard: threshold evaluation failed: %s", err)
 
         return data
 
@@ -241,7 +248,11 @@ class StorageGuardCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         backup_size = data.get(DATA_BACKUP_SIZE, 0)
         backup_count = data.get(DATA_BACKUP_COUNT, 0)
-        keep_count = 3
+        # Read the actual configured keep_count instead of hardcoding 3.
+        from .entity_resolver import get_number_value
+        keep_count = int(
+            get_number_value(self.hass, "backup_keep_count", DEFAULT_BACKUP_KEEP_COUNT)
+        )
         if backup_count > keep_count and backup_size > 0:
             avg_backup = backup_size / backup_count
             reclaimable += avg_backup * (backup_count - keep_count)
@@ -252,6 +263,24 @@ class StorageGuardCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return round(reclaimable, 2)
 
     def set_last_action(self, action: str) -> None:
-        """Record the last action performed."""
+        """Record the last action performed and push it to entities."""
         self._last_action = action
-        self.async_set_updated_data(self.data)
+        # Mutate the data dict in place so listeners see the new value, then
+        # notify them via the standard coordinator update mechanism.
+        if isinstance(self.data, dict):
+            self.data[DATA_LAST_ACTION] = action
+            self.async_set_updated_data(self.data)
+
+    def can_run_auto_cleanup(self, cooldown_seconds: int) -> bool:
+        """Return True if the cooldown window has elapsed."""
+        if self._last_auto_run_ts is None:
+            return True
+        return (dt_util.utcnow().timestamp() - self._last_auto_run_ts) >= cooldown_seconds
+
+    def mark_auto_cleanup_run(self) -> None:
+        """Record that the auto cleanup ran (starts the cooldown window)."""
+        self._last_auto_run_ts = dt_util.utcnow().timestamp()
+
+    def reset_auto_cooldown(self) -> None:
+        """Disarm the cooldown so the next breach triggers cleanup immediately."""
+        self._last_auto_run_ts = None

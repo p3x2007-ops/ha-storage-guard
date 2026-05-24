@@ -26,17 +26,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     await async_setup_services(hass)
 
-    # Register frontend card as static path
+    # Register frontend card as static path. Prefer the async API (HA 2024.7+)
+    # and fall back to the legacy sync helper on older cores.
+    card_url = "/storage_guard/storage-guard-card.js"
+    card_path = hass.config.path(
+        "custom_components/storage_guard/frontend/storage-guard-card.js"
+    )
     try:
-        hass.http.register_static_path(
-            "/storage_guard/storage-guard-card.js",
-            hass.config.path(
-                "custom_components/storage_guard/frontend/storage-guard-card.js"
-            ),
-            cache_headers=False,
+        from homeassistant.components.http import StaticPathConfig
+        await hass.http.async_register_static_paths(
+            [StaticPathConfig(card_url, card_path, cache_headers=False)]
         )
-    except Exception:
-        _LOGGER.debug("Static path already registered")
+    except (ImportError, AttributeError):
+        try:
+            hass.http.register_static_path(card_url, card_path, cache_headers=False)
+        except Exception:
+            _LOGGER.debug("Static path already registered")
 
     # Auto-register card as Lovelace resource
     try:

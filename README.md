@@ -116,6 +116,43 @@ A: The integration will not set up. Glances is required for disk usage monitorin
 
 ---
 
+## Changelog
+
+### v1.0.1 — Auto mode reliability fixes
+
+**Critical bug fix:** Auto mode (Semi-Auto / Full-Auto) was silently no-op
+when Home Assistant served translated friendly names — the runtime lookup
+matched switches/numbers by translated entity_id slug and never found them,
+so no cleanup ever fired even with the threshold exceeded.
+
+- Resolve all StorageGuard entities by stable `unique_id` via the entity
+  registry instead of guessing slugs (`entity_resolver.py`).
+- Add a 1-hour cooldown between automatic cleanup cycles to prevent
+  back-to-back purges on every coordinator poll; cooldown re-arms as soon
+  as disk usage drops back below the threshold.
+- `binary_sensor.threshold_exceeded` / `critical` now read the live value
+  of the corresponding `number` entity (was using a stale `config_entry`
+  option that was never written).
+- `set_last_action()` now mutates `coordinator.data` so the
+  `last_action` sensor reflects updates without a polling delay.
+- `clean_logs` truncates the log via the executor (was blocking the event
+  loop with sync I/O).
+- `_calculate_reclaimable()` reads the configured `backup_keep_count`
+  instead of a hardcoded `3`.
+- `clean_backups` now ignores backups with no `date` attribute when
+  sorting, avoiding the risk of deleting the wrong ones.
+- All timestamps use `homeassistant.util.dt.now()` (honours HA timezone).
+- `__init__.py` uses `async_register_static_paths` (HA 2024.7+ API) with
+  a fallback to the legacy sync helper.
+- Threshold evaluation is wrapped in try/except so a fault never blocks
+  the coordinator from publishing fresh sensor data.
+- `manifest.json` documentation/issue URLs corrected and `codeowners`
+  populated.
+
+### v1.0.0 — Initial release
+
+---
+
 ## Contributing
 
 Contributions are welcome! Please:
