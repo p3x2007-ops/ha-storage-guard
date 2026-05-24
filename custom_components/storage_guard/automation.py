@@ -3,77 +3,29 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
 
 from homeassistant.core import HomeAssistant
+from homeassistant.util import dt as dt_util
 
 from .const import (
+    AUTO_COOLDOWN_SECONDS,
     DATA_DISK_PERCENT,
     DEFAULT_ALERT_THRESHOLD,
+    DEFAULT_CRITICAL_THRESHOLD,
     DOMAIN,
     MODE_FULL_AUTO,
     MODE_MANUAL,
     MODE_SEMI_AUTO,
     SWITCH_AUTO_CLEAN_BACKUPS,
     SWITCH_AUTO_CLEAN_LOGS,
-    SWITCH_AUTO_EXCLUDE_ENTITIES,
     SWITCH_AUTO_PURGE_DB,
     SWITCH_NOTIFY_ACTION,
     SWITCH_NOTIFY_CRITICAL,
     SWITCH_NOTIFY_THRESHOLD,
 )
+from .entity_resolver import get_mode, get_number_value, get_switch_state
 
 _LOGGER = logging.getLogger(__name__)
-
-
-def _find_entity(hass: HomeAssistant, domain: str, key: str) -> str | None:
-    """Find a StorageGuard entity by key, regardless of locale-based entity_id."""
-    candidates = [
-        f"{domain}.storage_guard_{key}",
-        f"{domain}.storageguard_{key}",
-    ]
-    for eid in candidates:
-        if hass.states.get(eid):
-            return eid
-    for state in hass.states.async_all(domain):
-        if "storageguard" in state.entity_id or "storage_guard" in state.entity_id:
-            if key.replace("_", "").lower() in state.entity_id.replace("_", "").lower():
-                return state.entity_id
-    return None
-
-
-def _get_switch_state(hass: HomeAssistant, key: str) -> bool:
-    """Get a StorageGuard switch state."""
-    entity_id = _find_entity(hass, "switch", key)
-    if not entity_id:
-        return False
-    state = hass.states.get(entity_id)
-    return state is not None and state.state == "on"
-
-
-def _get_number_value(hass: HomeAssistant, key: str, default: float) -> float:
-    """Get a StorageGuard number value."""
-    entity_id = _find_entity(hass, "number", key)
-    if not entity_id:
-        return default
-    state = hass.states.get(entity_id)
-    if state is None:
-        return default
-    try:
-        return float(state.state)
-    except (ValueError, TypeError):
-        return default
-
-
-def _get_mode(hass: HomeAssistant) -> str:
-    """Get current operation mode."""
-    entity_id = _find_entity(hass, "select", "mode")
-    if not entity_id:
-        return MODE_MANUAL
-    state = hass.states.get(entity_id)
-    if state is None:
-        return MODE_MANUAL
-    return state.state
 
 
 async def async_evaluate_thresholds(hass: HomeAssistant, data: dict) -> None:
@@ -82,27 +34,37 @@ async def async_evaluate_thresholds(hass: HomeAssistant, data: dict) -> None:
     if disk_percent is None:
         return
 
-    threshold = _get_number_value(hass, "alert_threshold", DEFAULT_ALERT_THRESHOLD)
-    mode = _get_mode(hass)
+    threshold = get_number_value(hass, "alert_threshold", DEFAULT_ALERT_THRESHOLD)
+    mode = get_mode(hass)
+
+    coordinator = _get_coordinator(hass)
 
     if disk_percent <= threshold:
+        # Disarm cooldown as soon as disk drops back under threshold so the
+        # next breach triggers cleanup immediately.
+        if coordinator is not None:
+            coordinator.reset_auto_cooldown()
         return
 
-    _LOGGER.info(
+    _LOGGER.debug(
         "StorageGuard: Threshold exceeded (%.1f%% > %.0f%%), mode=%s",
         disk_percent, threshold, mode,
     )
 
-    # Always notify if enabled
-    if _get_switch_state(hass, SWITCH_NOTIFY_THRESHOLD):
+    if get_switch_state(hass, SWITCH_NOTIFY_THRESHOLD):
         await _async_notify(
             hass,
             f"Storage at {disk_percent:.1f}% (threshold: {threshold:.0f}%)",
-            f"StorageGuard detected disk usage above your configured threshold.",
+            "StorageGuard detected disk usage above your configured threshold.",
+            notification_id="storage_guard_threshold",
         )
 
-    # Critical notification
-    if disk_percent > 95 and _get_switch_state(hass, SWITCH_NOTIFY_CRITICAL):
+    critical_threshold = get_number_value(
+        hass, "critical_threshold", DEFAULT_CRITICAL_THRESHOLD
+    )
+    if disk_percent > critical_threshold and get_switch_state(
+        hass, SWITCH_NOTIFY_CRITICAL
+    ):
         await _async_notify(
             hass,
             f"CRITICAL: Storage at {disk_percent:.1f}%",
@@ -113,40 +75,69 @@ async def async_evaluate_thresholds(hass: HomeAssistant, data: dict) -> None:
     if mode == MODE_MANUAL:
         return
 
-    # Semi-auto: execute non-destructive actions
+    if coordinator is not None and not coordinator.can_run_auto_cleanup(
+        AUTO_COOLDOWN_SECONDS
+    ):
+        _LOGGER.debug(
+            "StorageGuard: skipping auto cleanup (cooldown active)"
+        )
+        return
+
+    triggered = False
+
     if mode in (MODE_SEMI_AUTO, MODE_FULL_AUTO):
-        if _get_switch_state(hass, SWITCH_AUTO_CLEAN_LOGS):
+        if get_switch_state(hass, SWITCH_AUTO_CLEAN_LOGS):
             await hass.services.async_call(DOMAIN, "clean_logs", blocking=True)
-            if _get_switch_state(hass, SWITCH_NOTIFY_ACTION):
+            triggered = True
+            if get_switch_state(hass, SWITCH_NOTIFY_ACTION):
                 await _async_notify(
-                    hass, "StorageGuard: Logs cleaned", "Log files have been truncated."
+                    hass,
+                    "StorageGuard: Logs cleaned",
+                    "Log files have been truncated.",
                 )
 
-        if _get_switch_state(hass, SWITCH_AUTO_PURGE_DB):
+        if get_switch_state(hass, SWITCH_AUTO_PURGE_DB):
             await hass.services.async_call(DOMAIN, "purge_database", blocking=True)
-            if _get_switch_state(hass, SWITCH_NOTIFY_ACTION):
+            triggered = True
+            if get_switch_state(hass, SWITCH_NOTIFY_ACTION):
                 await _async_notify(
-                    hass, "StorageGuard: Database purged", "Recorder has been purged."
+                    hass,
+                    "StorageGuard: Database purged",
+                    "Recorder has been purged.",
                 )
 
-    # Full-auto: also execute destructive actions
-    if mode == MODE_FULL_AUTO:
-        if _get_switch_state(hass, SWITCH_AUTO_CLEAN_BACKUPS):
-            await hass.services.async_call(DOMAIN, "clean_backups", blocking=True)
-            if _get_switch_state(hass, SWITCH_NOTIFY_ACTION):
-                await _async_notify(
-                    hass, "StorageGuard: Backups cleaned", "Old backups have been removed."
-                )
-
-    # Semi-auto: request confirmation for destructive actions
-    if mode == MODE_SEMI_AUTO:
-        if _get_switch_state(hass, SWITCH_AUTO_CLEAN_BACKUPS):
+    if mode == MODE_FULL_AUTO and get_switch_state(
+        hass, SWITCH_AUTO_CLEAN_BACKUPS
+    ):
+        await hass.services.async_call(DOMAIN, "clean_backups", blocking=True)
+        triggered = True
+        if get_switch_state(hass, SWITCH_NOTIFY_ACTION):
             await _async_notify(
                 hass,
-                "StorageGuard: Backup cleanup pending",
-                "Disk space is low. Approve backup cleanup in the StorageGuard card.",
-                notification_id="storage_guard_confirm_backups",
+                "StorageGuard: Backups cleaned",
+                "Old backups have been removed.",
             )
+
+    if mode == MODE_SEMI_AUTO and get_switch_state(
+        hass, SWITCH_AUTO_CLEAN_BACKUPS
+    ):
+        await _async_notify(
+            hass,
+            "StorageGuard: Backup cleanup pending",
+            "Disk space is low. Approve backup cleanup in the StorageGuard card.",
+            notification_id="storage_guard_confirm_backups",
+        )
+
+    if triggered and coordinator is not None:
+        coordinator.mark_auto_cleanup_run()
+
+
+def _get_coordinator(hass: HomeAssistant):
+    """Return the active StorageGuard coordinator, if any."""
+    for entry_data in hass.data.get(DOMAIN, {}).values():
+        if "coordinator" in entry_data:
+            return entry_data["coordinator"]
+    return None
 
 
 async def _async_notify(
@@ -160,7 +151,9 @@ async def _async_notify(
     if notification_id:
         data["notification_id"] = notification_id
     else:
-        data["notification_id"] = f"storage_guard_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        data["notification_id"] = (
+            f"storage_guard_{dt_util.now().strftime('%Y%m%d%H%M%S')}"
+        )
 
     await hass.services.async_call(
         "persistent_notification", "create", data, blocking=False

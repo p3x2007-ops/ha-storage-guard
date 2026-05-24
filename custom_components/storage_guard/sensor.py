@@ -150,7 +150,7 @@ class StorageGuardSensor(
             "name": "StorageGuard",
             "manufacturer": "StorageGuard",
             "model": "Storage Manager",
-            "sw_version": "1.0.0",
+            "sw_version": "1.0.1",
         }
 
     @property

@@ -23,6 +23,11 @@ UPDATE_INTERVAL_BACKUPS = 600
 UPDATE_INTERVAL_LOGS = 300
 UPDATE_INTERVAL_TOP_ENTITIES = 3600
 
+# Minimum delay between two automatic cleanup cycles when threshold stays exceeded.
+# Without this, the coordinator would re-trigger cleanup every poll (60s) and could
+# purge in a loop. Auto-armed again as soon as disk drops back below threshold.
+AUTO_COOLDOWN_SECONDS = 3600
+
 # Switch keys
 SWITCH_AUTO_PURGE_DB = "auto_purge_db"
 SWITCH_AUTO_CLEAN_BACKUPS = "auto_clean_backups"

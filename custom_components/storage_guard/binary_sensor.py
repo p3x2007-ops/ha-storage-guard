@@ -21,6 +21,7 @@ from .const import (
     DOMAIN,
 )
 from .coordinator import StorageGuardCoordinator
+from .entity_resolver import get_number_value
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -88,7 +89,7 @@ class StorageGuardBinarySensor(
             "name": "StorageGuard",
             "manufacturer": "StorageGuard",
             "model": "Storage Manager",
-            "sw_version": "1.0.0",
+            "sw_version": "1.0.1",
         }
 
     @property
@@ -99,7 +100,10 @@ class StorageGuardBinarySensor(
         disk_percent = self.coordinator.data.get(DATA_DISK_PERCENT)
         if disk_percent is None:
             return None
-        threshold = self._entry.options.get(
+        # Read the configured threshold from the live number entity so the
+        # binary sensor stays in sync with whatever the user picks via the UI.
+        threshold = get_number_value(
+            self.hass,
             self.entity_description.threshold_key,
             self.entity_description.default_threshold,
         )

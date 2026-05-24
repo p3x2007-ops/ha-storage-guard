@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+import os
 
 import voluptuous as vol
 
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import config_validation as cv
+from homeassistant.util import dt as dt_util
 
 from .const import (
     DEFAULT_BACKUP_KEEP_COUNT,
@@ -16,7 +17,6 @@ from .const import (
     DOMAIN,
     MODE_FULL_AUTO,
     MODE_MANUAL,
-    MODE_SEMI_AUTO,
     SERVICE_CLEAN_BACKUPS,
     SERVICE_CLEAN_LOGS,
     SERVICE_EXCLUDE_ENTITY,
@@ -26,10 +26,10 @@ from .const import (
     SERVICE_RUN_CLEANUP,
     SWITCH_AUTO_CLEAN_BACKUPS,
     SWITCH_AUTO_CLEAN_LOGS,
-    SWITCH_AUTO_EXCLUDE_ENTITIES,
     SWITCH_AUTO_PURGE_DB,
 )
 from .coordinator import StorageGuardCoordinator
+from .entity_resolver import get_mode, get_number_value, get_switch_state
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -42,54 +42,9 @@ def _get_coordinator(hass: HomeAssistant) -> StorageGuardCoordinator | None:
     return None
 
 
-def _find_entity(hass: HomeAssistant, domain: str, key: str) -> str | None:
-    """Find a StorageGuard entity by key, regardless of locale-based entity_id."""
-    candidates = [
-        f"{domain}.storage_guard_{key}",
-        f"{domain}.storageguard_{key}",
-    ]
-    for eid in candidates:
-        if hass.states.get(eid):
-            return eid
-    for state in hass.states.async_all(domain):
-        if "storageguard" in state.entity_id or "storage_guard" in state.entity_id:
-            if key.replace("_", "").lower() in state.entity_id.replace("_", "").lower():
-                return state.entity_id
-    return None
-
-
-def _get_switch_state(hass: HomeAssistant, key: str) -> bool:
-    """Get a StorageGuard switch state."""
-    entity_id = _find_entity(hass, "switch", key)
-    if not entity_id:
-        return False
-    state = hass.states.get(entity_id)
-    return state is not None and state.state == "on"
-
-
-def _get_number_value(hass: HomeAssistant, key: str, default: float) -> float:
-    """Get a StorageGuard number value."""
-    entity_id = _find_entity(hass, "number", key)
-    if not entity_id:
-        return default
-    state = hass.states.get(entity_id)
-    if state is None:
-        return default
-    try:
-        return float(state.state)
-    except (ValueError, TypeError):
-        return default
-
-
-def _get_mode(hass: HomeAssistant) -> str:
-    """Get current operation mode."""
-    entity_id = _find_entity(hass, "select", "mode")
-    if not entity_id:
-        return MODE_MANUAL
-    state = hass.states.get(entity_id)
-    if state is None:
-        return MODE_MANUAL
-    return state.state
+def _now_hm() -> str:
+    """Return the current local time in HH:MM (respects HA's timezone)."""
+    return dt_util.now().strftime("%H:%M")
 
 
 async def async_setup_services(hass: HomeAssistant) -> None:
@@ -100,7 +55,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         coordinator = _get_coordinator(hass)
         keep_days = call.data.get(
             "keep_days",
-            _get_number_value(hass, "purge_keep_days", DEFAULT_PURGE_KEEP_DAYS),
+            get_number_value(hass, "purge_keep_days", DEFAULT_PURGE_KEEP_DAYS),
         )
         keep_days = int(keep_days)
 
@@ -114,9 +69,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         )
 
         if coordinator:
-            coordinator.set_last_action(
-                f"Purged DB to {keep_days}d at {datetime.now().strftime('%H:%M')}"
-            )
+            coordinator.set_last_action(f"Purged DB to {keep_days}d at {_now_hm()}")
 
     async def handle_clean_backups(call: ServiceCall) -> None:
         """Handle clean backups service call."""
@@ -124,7 +77,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         keep_count = int(
             call.data.get(
                 "keep_count",
-                _get_number_value(hass, "backup_keep_count", DEFAULT_BACKUP_KEEP_COUNT),
+                get_number_value(hass, "backup_keep_count", DEFAULT_BACKUP_KEEP_COUNT),
             )
         )
 
@@ -134,22 +87,39 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             from homeassistant.components.hassio import get_supervisor_client
             client = get_supervisor_client(hass)
             backups = await client.backups.list()
-            if backups:
-                sorted_backups = sorted(backups, key=lambda b: getattr(b, "date", ""))
-                to_delete = sorted_backups[:-keep_count] if len(sorted_backups) > keep_count else []
+            if not backups:
+                return
 
-                for backup in to_delete:
-                    slug = getattr(backup, "slug", None)
-                    if slug:
-                        await client.backups.remove(slug)
-                        _LOGGER.info("StorageGuard: Deleted backup %s", slug)
+            # Drop entries without a date — we cannot safely order them.
+            dated = [b for b in backups if getattr(b, "date", None)]
+            sorted_backups = sorted(dated, key=lambda b: b.date)
+            to_delete = (
+                sorted_backups[:-keep_count]
+                if len(sorted_backups) > keep_count
+                else []
+            )
 
-                if coordinator and to_delete:
-                    coordinator.set_last_action(
-                        f"Deleted {len(to_delete)} backup(s) at {datetime.now().strftime('%H:%M')}"
-                    )
-        except Exception as err:
+            for backup in to_delete:
+                slug = getattr(backup, "slug", None)
+                if slug:
+                    await client.backups.remove(slug)
+                    _LOGGER.info("StorageGuard: Deleted backup %s", slug)
+
+            if coordinator and to_delete:
+                coordinator.set_last_action(
+                    f"Deleted {len(to_delete)} backup(s) at {_now_hm()}"
+                )
+        except Exception as err:  # noqa: BLE001
             _LOGGER.error("StorageGuard: Error cleaning backups: %s", err)
+
+    def _truncate_log_sync(log_path: str) -> float:
+        """Return size before truncate (MB). Empties the log file."""
+        if not os.path.exists(log_path):
+            return 0.0
+        size_before = os.path.getsize(log_path) / 1024 / 1024
+        with open(log_path, "w"):
+            pass
+        return size_before
 
     async def handle_clean_logs(call: ServiceCall) -> None:
         """Handle clean logs service call."""
@@ -159,16 +129,14 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         _LOGGER.info("StorageGuard: Cleaning logs at %s", log_path)
 
         try:
-            import os
-            if os.path.exists(log_path):
-                size_before = os.path.getsize(log_path) / 1024 / 1024
-                with open(log_path, "w") as f:
-                    f.write("")
-                if coordinator:
-                    coordinator.set_last_action(
-                        f"Cleaned logs ({size_before:.0f}MB) at {datetime.now().strftime('%H:%M')}"
-                    )
-        except Exception as err:
+            size_before = await hass.async_add_executor_job(
+                _truncate_log_sync, log_path
+            )
+            if coordinator:
+                coordinator.set_last_action(
+                    f"Cleaned logs ({size_before:.0f}MB) at {_now_hm()}"
+                )
+        except Exception as err:  # noqa: BLE001
             _LOGGER.error("StorageGuard: Error cleaning logs: %s", err)
 
     async def handle_exclude_entity(call: ServiceCall) -> None:
@@ -179,9 +147,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         # This is a placeholder — full implementation needs recorder reload
         coordinator = _get_coordinator(hass)
         if coordinator:
-            coordinator.set_last_action(
-                f"Excluded {entity_id} at {datetime.now().strftime('%H:%M')}"
-            )
+            coordinator.set_last_action(f"Excluded {entity_id} at {_now_hm()}")
 
     async def handle_include_entity(call: ServiceCall) -> None:
         """Handle include entity service call."""
@@ -189,46 +155,44 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         _LOGGER.info("StorageGuard: Re-including entity %s in recorder", entity_id)
         coordinator = _get_coordinator(hass)
         if coordinator:
-            coordinator.set_last_action(
-                f"Included {entity_id} at {datetime.now().strftime('%H:%M')}"
-            )
+            coordinator.set_last_action(f"Included {entity_id} at {_now_hm()}")
 
     async def handle_run_analysis(call: ServiceCall) -> None:
         """Handle run analysis service call."""
         coordinator = _get_coordinator(hass)
         if coordinator:
-            coordinator._top_entities = await coordinator._async_get_top_entities()
-            coordinator.set_last_action(
-                f"Analysis run at {datetime.now().strftime('%H:%M')}"
-            )
+            top = await coordinator._async_get_top_entities()
+            coordinator._top_entities = top
+            coordinator.set_last_action(f"Analysis run at {_now_hm()}")
 
     async def handle_run_cleanup(call: ServiceCall) -> None:
         """Handle full cleanup cycle."""
-        mode = _get_mode(hass)
+        mode = get_mode(hass)
         force = call.data.get("force", False)
 
         if mode == MODE_MANUAL and not force:
             _LOGGER.info("StorageGuard: Manual mode, skipping auto cleanup")
             return
 
-        _LOGGER.info("StorageGuard: Running cleanup cycle (mode=%s, force=%s)", mode, force)
+        _LOGGER.info(
+            "StorageGuard: Running cleanup cycle (mode=%s, force=%s)", mode, force
+        )
 
-        # Priority order: logs → DB → backups → entities
-        if _get_switch_state(hass, SWITCH_AUTO_CLEAN_LOGS):
+        # Priority order: logs → DB → backups
+        if get_switch_state(hass, SWITCH_AUTO_CLEAN_LOGS):
             await handle_clean_logs(call)
 
-        if _get_switch_state(hass, SWITCH_AUTO_PURGE_DB):
+        if get_switch_state(hass, SWITCH_AUTO_PURGE_DB):
             await handle_purge_database(call)
 
-        if mode == MODE_FULL_AUTO or force:
-            if _get_switch_state(hass, SWITCH_AUTO_CLEAN_BACKUPS):
-                await handle_clean_backups(call)
+        if (mode == MODE_FULL_AUTO or force) and get_switch_state(
+            hass, SWITCH_AUTO_CLEAN_BACKUPS
+        ):
+            await handle_clean_backups(call)
 
         coordinator = _get_coordinator(hass)
         if coordinator:
-            coordinator.set_last_action(
-                f"Full cleanup ({mode}) at {datetime.now().strftime('%H:%M')}"
-            )
+            coordinator.set_last_action(f"Full cleanup ({mode}) at {_now_hm()}")
 
     hass.services.async_register(
         DOMAIN, SERVICE_PURGE_DATABASE, handle_purge_database,
